@@ -1,15 +1,28 @@
 const std = @import("std");
+const clap = @import("clap");
 const heap = std.heap;
+const io = std.io;
 const ArrayList = std.ArrayList;
 
 pub fn main() !void {
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    var args = try std.process.argsWithAllocator(allocator);
+    // var gpa = heap.GeneralPurposeAllocator(.{}){};
+    // const allocator = gpa.allocator();
+    const params = comptime [_]clap.Param(clap.Help){
+        clap.parseParam("-h, --help     display this help and exit.") catch unreachable,
+        clap.parseParam("<FILE>         path to JSON file to read, or `-` for stdin") catch unreachable,
+    };
+    var diag = clap.Diagnostic{};
+    var args = clap.parse(clap.Help, &params, .{
+        .FILE = clap.parsers.string,
+    }, .{ .diagnostic = &diag }) catch |err| {
+        // Report useful error and exit
+        diag.report(io.getStdErr().writer(), err) catch {};
+        return err;
+    };
     defer args.deinit();
-    _ = args.next();
-    var file_name = try copy_slice(allocator, args.next() orelse "-");
-    std.debug.print("in_path: {s}", .{file_name});
+
+    const file_name = if (args.positionals.len >= 1) args.positionals[0] else "-";
+    std.debug.print("{s}\n", .{file_name});
 }
 
 fn copy_slice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
