@@ -10,7 +10,7 @@ pub fn SliceIterator(comptime T: type) type {
         pub fn from_slice(slice: *const []const T) Self {
             return Self{ .ptr = slice.ptr, .len = slice.len };
         }
-        pub inline fn next(self: *Self) ?T {
+        pub fn next(self: *Self) ?T {
             if (self.len >= 1) {
                 const first = self.ptr[0];
                 self.ptr += @sizeOf(T);
@@ -21,7 +21,7 @@ pub fn SliceIterator(comptime T: type) type {
             }
         }
         /// Does nothing if the iterator is empty
-        pub inline fn ignoreNext(self: *Self) void {
+        pub fn ignoreNext(self: *Self) void {
             if (self.len >= 1) {
                 self.ptr += @sizeOf(T);
                 self.len -= 1;
@@ -29,7 +29,7 @@ pub fn SliceIterator(comptime T: type) type {
         }
         /// Returns a reference to the next value without consuming it.
         /// Once the iterator is consumed, the reference is no good
-        pub inline fn peek(self: *const Self) ?*const T {
+        pub fn peek(self: *const Self) ?*const T {
             if (self.len >= 1) {
                 const first = self.ptr[0];
                 return &first;
@@ -38,7 +38,7 @@ pub fn SliceIterator(comptime T: type) type {
             }
         }
         /// Returns a copy of the next value, without consuming the iterator
-        pub inline fn peekCopy(self: *const Self) ?T {
+        pub fn peekCopy(self: *const Self) ?T {
             if (self.len >= 1) {
                 const first = self.ptr[0];
                 return first;
@@ -47,7 +47,7 @@ pub fn SliceIterator(comptime T: type) type {
             }
         }
         /// Fails completely if len is less than items, leaves items in slice
-        pub inline fn take(self: *Self, number: usize) ?[]const T {
+        pub fn take(self: *Self, number: usize) ?[]const T {
             if (self.len >= number) {
                 const items = self.ptr[0..number];
                 self.ptr += @sizeOf(T) * number;
@@ -59,7 +59,7 @@ pub fn SliceIterator(comptime T: type) type {
         }
         /// Fails completely if len is less than items
         /// Returns owned array, no worries about pointers
-        pub inline fn peek_multiple(self: *const Self, comptime n: usize) ?[n]T {
+        pub fn peek_multiple(self: *const Self, comptime n: usize) ?[n]T {
             if (self.len >= n) {
                 var out: [n]T = undefined;
                 mem.copy(u8, out[0..], self.ptr[0..n]);

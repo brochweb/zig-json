@@ -17,6 +17,10 @@ pub fn build(b: *std.build.Builder) void {
     exe.addPackagePath("clap", "libs/zig-clap/clap.zig");
     exe.install();
 
+    var sign_step = b.step("sign", "Sign the app");
+    sign_step.makeFn = codesign;
+    sign_step.dependOn(b.getInstallStep());
+
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -32,4 +36,10 @@ pub fn build(b: *std.build.Builder) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
+}
+
+fn codesign(_: *std.build.Step) !void {
+    var proc = std.ChildProcess.init(&[_][]const u8{ "xcrun", "codesign", "-s", "U35BT7XSLA", "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
+    try proc.spawn();
+    _ = try proc.wait();
 }

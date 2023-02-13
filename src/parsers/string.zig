@@ -5,7 +5,8 @@ const SliceIterator = @import("../slice_iterator.zig").SliceIterator;
 
 /// Caller owns returned slice
 pub fn readString(json: *SliceIterator(u8), allocator: Allocator) ParseError![]u8 {
-    var string = try std.ArrayList(u8).initCapacity(allocator, 32);
+    var string = std.ArrayList(u8).init(allocator);
+    errdefer string.deinit();
     if (json.next() orelse 0 != '"') {
         return ParseError.ExpectedString;
     }
@@ -34,7 +35,10 @@ pub fn readString(json: *SliceIterator(u8), allocator: Allocator) ParseError![]u
                 }
             },
             '"' => {
-                return string.toOwnedSlice();
+                string.shrinkAndFree(string.items.len);
+                const slice = string.toOwnedSlice();
+                string.deinit();
+                return slice;
             },
             else => try string.append(char),
         }

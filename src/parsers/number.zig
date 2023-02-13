@@ -2,13 +2,14 @@ const std = @import("std");
 const SliceIterator = @import("../slice_iterator.zig").SliceIterator;
 const ParseError = @import("../main.zig").ParseError;
 
-pub inline fn readNumber(json: *SliceIterator(u8)) ParseError!f64 {
+pub fn readNumber(json: *SliceIterator(u8)) ParseError!f64 {
     if (json.peekCopy() orelse 0 == '-') {
         json.ignoreNext();
     }
     return try parseUnsignedNumber(json);
 }
-inline fn parseUnsignedNumber(json: *SliceIterator(u8)) ParseError!f64 {
+
+fn parseUnsignedNumber(json: *SliceIterator(u8)) ParseError!f64 {
     var num_buf: [308]u8 = undefined;
     var num_length: usize = 0;
     var frac: f64 = 0;

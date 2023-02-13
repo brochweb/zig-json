@@ -116,10 +116,12 @@ const ParseState = enum { Value, Object, Array };
 pub const ParseError = error{ StringInvalidEscape, ExpectedEndOfString, ExpectedEndOfFile, ExpectedString, ExpectedNextValue, ExpectedColon, OutOfMemory, FileTooLong, InvalidNumberLiteral, SystemError };
 
 pub fn main() !void {
-    var gpa = heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    // var gpa = heap.GeneralPurposeAllocator(.{}){};
+    // const allocator = gpa.allocator();
+    const allocator = std.heap.c_allocator;
     const params = comptime clap.parseParamsComptime(
         \\-h, --help     display this help and exit.
+        \\-p, --print    print the JSON file
         \\<FILE>         path to JSON file to read, or `-` for stdin
         \\
     );
@@ -142,8 +144,13 @@ pub fn main() !void {
         else
             break :x try std.fs.cwd().readFileAlloc(allocator, file_name, std.math.maxInt(isize));
     };
-    const val = try parse(&json_body, allocator);
-    std.debug.print("{}\n", .{val});
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    const arena_alloc = arena.allocator();
+    const val = try parse(&json_body, arena_alloc);
+    defer arena.deinit();
+    if (args.args.print) {
+        return std.io.getStdOut().writer().print("{}\n", .{val});
+    }
 }
 
 pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!JsonValue {
@@ -223,6 +230,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                         else => return ParseError.ExpectedNextValue,
                     }
                 }
+                contents.shrinkRetainingCapacity(contents.items.len);
                 return .{ .Array = contents };
             },
             .Object => {
@@ -265,37 +273,37 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
     }
 }
 
-inline fn ignoreWs(json: *SliceIterator(u8)) void {
+fn ignoreWs(json: *SliceIterator(u8)) void {
     while (isWs(json.peekCopy()))
         json.ignoreNext();
 }
 
-inline fn isWs(char: ?u8) bool {
+fn isWs(char: ?u8) bool {
     if (char) |ch| {
         return ch == 0x0020 or ch == 0x000A or ch == 0x000D or ch == 0x0009;
     } else {
         return false;
     }
 }
-inline fn isString(char: u8) bool {
+fn isString(char: u8) bool {
     return char == '"';
 }
-inline fn isObject(char: u8) bool {
+fn isObject(char: u8) bool {
     return char == '{';
 }
-inline fn isArray(char: u8) bool {
+fn isArray(char: u8) bool {
     return char == '[';
 }
-inline fn isNumber(char: u8) bool {
+fn isNumber(char: u8) bool {
     return (char >= '0' and char <= '9') or char == '-';
 }
-inline fn isTrue(char: [4]u8) bool {
+fn isTrue(char: [4]u8) bool {
     return mem.eql(u8, char, "true");
 }
-inline fn isFalse(char: [4]u8) bool {
+fn isFalse(char: [4]u8) bool {
     return mem.eql(u8, char, "false");
 }
-inline fn isNull(char: [4]u8) bool {
+fn isNull(char: [4]u8) bool {
     return mem.eql(u8, char, "null");
 }
 
