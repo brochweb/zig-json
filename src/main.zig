@@ -225,6 +225,7 @@ pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!RootJ
     var json = SliceIterator(u8).from_slice(json_buf);
     var state: ParseState = .Value;
 
+    ignoreWs(&json);
     const value: JsonValue = parseNext(&json, state, arena_alloc) catch |err| {
         std.debug.print("{}\n. Remaining json: \"{s}\"\n", .{ err, json.ptr[0..json.len] });
         return err;
