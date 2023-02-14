@@ -210,7 +210,7 @@ pub fn main() !void {
     };
     const val = try parse(&json_body, allocator);
     if (args.args.print) {
-        return std.io.getStdOut().writer().print("{}\n", .{val});
+        return std.io.getStdOut().writer().print("{}\n", .{val.value});
     }
 }
 
