@@ -12,9 +12,9 @@ const ArrayList = std.ArrayList;
 
 const JsonObject = std.StringHashMap(JsonValue);
 
-fn is_ascii(char: ?u8) bool {
+fn isUtf8(char: ?u8) bool {
     if (char) |c|
-        return (c > 31) and c != 127 and c != 255
+        return std.unicode.utf8ValidateSlice(&[_]u8{c})
     else
         return true;
 }
@@ -104,7 +104,7 @@ pub const JsonValue = union(enum) {
                         try std.fmt.format(writer, "\\\"", .{});
                     } else if (char == '\\') {
                         try std.fmt.format(writer, "\\\\", .{});
-                    } else if (is_ascii(char)) {
+                    } else if (isUtf8(char)) {
                         try std.fmt.format(writer, "{c}", .{char});
                     } else {
                         switch (char) {
@@ -114,10 +114,28 @@ pub const JsonValue = union(enum) {
                             13 => try std.fmt.format(writer, "\\r", .{}),
                             9 => try std.fmt.format(writer, "\\t", .{}),
                             else => {
-                                if (!is_ascii(iterator.peekCopy())) // Orelse printable char
-                                    try std.fmt.format(writer, "\\u{x}{x}", .{ char, iterator.next() orelse unreachable })
-                                else
+                                const is_byte_sequence: ?u3 = std.unicode.utf8ByteSequenceLength(char) catch null;
+                                outer: {
+                                    inner: {
+                                        if (is_byte_sequence) |len| {
+                                            var utf8_buf: [4]u8 = undefined;
+                                            utf8_buf[0] = char;
+                                            var i: usize = 1;
+                                            while (i < len) : (i += 1) {
+                                                utf8_buf[i] = iterator.next() orelse break :inner;
+                                            }
+                                            var utf16_buf: [4]u16 = undefined;
+                                            var utf16_len = std.unicode.utf8ToUtf16Le(&utf16_buf, &utf8_buf) catch break :inner;
+                                            var j: usize = 0;
+                                            while (j < utf16_len) : (j += 1) {
+                                                try std.fmt.format(writer, "\\u{x:0>4}", .{utf16_buf[j]});
+                                            }
+                                            break :outer;
+                                        } else break :inner;
+                                    }
+
                                     try std.fmt.format(writer, "\\u00{x}", .{char});
+                                }
                             },
                         }
                     }
@@ -371,11 +389,11 @@ fn copy_slice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
 }
 
 test "json string" {
-    var string = "\"test, test,\\n\\u00FF\\u02FF\"";
+    var string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\"";
     var mut_slice = SliceIterator(u8).from_slice(&mem.span(string));
     const string_ret = try readString(&mut_slice, std.testing.allocator);
     defer std.testing.allocator.free(string_ret);
-    try std.testing.expectEqualStrings("test, test,\n\xFF\x02\xFF", string_ret);
+    try std.testing.expectEqualStrings("test, test,\n🎸🦕㻘", string_ret);
 }
 
 test "sizes" {

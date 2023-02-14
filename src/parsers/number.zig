@@ -2,24 +2,65 @@ const std = @import("std");
 const SliceIterator = @import("../slice_iterator.zig").SliceIterator;
 const ParseError = @import("../main.zig").ParseError;
 
+const powers_of_ten_f64 = [32]f64{
+    1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,
+    1e8,  1e9,  1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+    1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22, 1e23,
+    1e24, 1e25, 1e26, 1e27, 1e28, 1e29, 1e30, 1e31,
+};
+
+const powers_of_ten_neg_f64 = [32]f64{
+    1e-1,  1e-2,  1e-3,  1e-4,  1e-5,  1e-6,  1e-7,
+    1e-8,  1e-9,  1e-10, 1e-11, 1e-12, 1e-13, 1e-14,
+    1e-15, 1e-16, 1e-17, 1e-18, 1e-19, 1e-20, 1e-21,
+    1e-22, 1e-23, 1e-24, 1e-25, 1e-26, 1e-27, 1e-28,
+    1e-29, 1e-30, 1e-31, 1e-32,
+};
+
+const powers_of_ten_i16 = [5]i16{ 1, 10, 100, 1000, 10000 };
+
 pub fn readNumber(json: *SliceIterator(u8)) ParseError!f64 {
-    if (json.peekCopy() orelse 0 == '-') {
+    const neg = json.peekCopy() orelse 0 == '-';
+    if (neg) {
         json.ignoreNext();
     }
-    return try parseUnsignedNumber(json);
+    const num = try parseUnsignedNumber(json);
+    if (neg) {
+        return num * -1;
+    } else {
+        return num;
+    }
 }
 
 fn parseUnsignedNumber(json: *SliceIterator(u8)) ParseError!f64 {
-    var num_buf: [308]u8 = undefined;
+    var num_buf: [324]u8 = undefined;
     var num_length: usize = 0;
-    var frac: f64 = 0;
-    var exp: i16 = 1;
     while (json.peekCopy()) |char| {
         switch (char) {
-            '0'...'9' => {
+            '0'...'9', '.', 'e', 'E', '-', '+' => {
                 if (num_length >= num_buf.len) return ParseError.InvalidNumberLiteral;
                 num_buf[num_length] = json.next() orelse unreachable;
                 num_length += 1;
+            },
+            else => break,
+        }
+    }
+    const number = std.fmt.parseFloat(f64, num_buf[0..num_length]) catch return ParseError.InvalidNumberLiteral;
+
+    return number;
+}
+
+fn parseUnsignedNumberFast(json: *SliceIterator(u8)) ParseError!f64 {
+    var num: f64 = 0;
+    var frac: f64 = 0;
+    var exp: i16 = 1;
+    var i: usize = 0;
+    while (json.peekCopy()) |char| : (i += 1) {
+        switch (char) {
+            '0'...'9' => {
+                json.ignoreNext();
+                const val = char - '0';
+                num += @intToFloat(f64, val) * powers_of_ten_f64[i & 31];
             },
             '.' => {
                 json.ignoreNext();
@@ -32,47 +73,50 @@ fn parseUnsignedNumber(json: *SliceIterator(u8)) ParseError!f64 {
             else => break,
         }
     }
-    var number = std.fmt.parseFloat(f64, num_buf[0..num_length]) catch return ParseError.InvalidNumberLiteral;
-    number += frac;
+    num += frac;
     if (exp != 1) {
-        number = std.math.pow(f64, number, @intToFloat(f64, exp));
+        num = std.math.pow(f64, num, @intToFloat(f64, exp));
     }
-    return number;
+    return num;
 }
 inline fn parseFrac(json: *SliceIterator(u8)) ParseError!f64 {
-    var frac_buf: [324]u8 = undefined;
-    var frac_length: usize = 2;
-    frac_buf[0] = '0';
-    frac_buf[1] = '.';
-    while (json.peekCopy()) |char| {
+    var out: f64 = 0;
+    var i: usize = 0;
+    while (json.peekCopy()) |char| : (i += 1) {
         switch (char) {
             '0'...'9' => {
-                if (frac_length >= frac_buf.len) return ParseError.InvalidNumberLiteral;
-                frac_buf[frac_length] = json.next() orelse unreachable;
-                frac_length += 1;
+                json.ignoreNext();
+                const val = char - '0';
+                out += @intToFloat(f64, val) * powers_of_ten_neg_f64[i & 31];
             },
             else => break,
         }
     }
-    return std.fmt.parseFloat(f64, frac_buf[0..frac_length]) catch return ParseError.InvalidNumberLiteral;
+    return out;
 }
 inline fn parseExp(json: *SliceIterator(u8)) ParseError!i16 {
-    var exp_buf: [4]u8 = undefined;
-    var exp_len: usize = 0;
+    var exp: i16 = 0;
     var next = json.peekCopy() orelse 0;
     if (next == '-' or next == '+') {
-        exp_buf[0] = json.next() orelse unreachable;
-        exp_len += 1;
+        json.ignoreNext();
     }
-    while (json.peekCopy()) |char| {
+    const neg = next == '-';
+    var i: usize = 0;
+    while (json.peekCopy()) |char| : (i += 1) {
+        if (i > 4)
+            return ParseError.InvalidNumberLiteral;
         switch (char) {
             '0'...'9' => {
-                if (exp_len >= exp_buf.len) return ParseError.InvalidNumberLiteral;
-                exp_buf[exp_len] = json.next() orelse unreachable;
-                exp_len += 1;
+                json.ignoreNext();
+                const val = char - '0';
+                exp = std.math.add(i16, exp, val * powers_of_ten_i16[i]) catch return ParseError.InvalidNumberLiteral;
             },
             else => break,
         }
     }
-    return std.fmt.parseInt(i16, exp_buf[0..exp_len], 10) catch return ParseError.InvalidNumberLiteral;
+    if (neg) {
+        return -1 * exp;
+    } else {
+        return exp;
+    }
 }

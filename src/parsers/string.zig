@@ -83,17 +83,32 @@ inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayLis
                 // std.debug.print("Ignoring {s} because escaping char\n", .{json.dynTake(ignore.*) orelse unreachable});
                 ignore.* = 0;
             }
-            const code_bytes = json.take(4) orelse return ParseError.StringInvalidEscape;
+            const first_bytes = json.take(4) orelse return ParseError.StringInvalidEscape;
             if (i) |idx| {
                 idx.* += 4; // Because it just took 4 bytes
             }
-            const code = std.fmt.parseUnsigned(u16, &code_bytes, 16) catch return ParseError.StringInvalidEscape;
-            if (code <= 0x00FF) {
-                try string.append(@truncate(u8, code));
-            } else {
-                try string.append(@truncate(u8, code >> 8));
-                try string.append(@truncate(u8, code));
+            const next_six = json.peekMany(6) orelse [_]u8{0} ** 6;
+            var eight_bytes: [2][4]u8 = undefined;
+            eight_bytes[0] = first_bytes;
+            var escape_groups: []const [4]u8 = eight_bytes[0..1];
+            if (std.mem.eql(u8, next_six[0..2], "\\u")) {
+                json.ignoreMany(6);
+                if (i) |idx| {
+                    idx.* += 6;
+                }
+                eight_bytes[1] = next_six[2..].*;
+                escape_groups = eight_bytes[0..2];
             }
+            var utf16: [2]u16 = undefined;
+            for (escape_groups) |bytes, idx| {
+                utf16[idx] = std.fmt.parseUnsigned(u16, &bytes, 16) catch return ParseError.StringInvalidEscape;
+            }
+            // std.debug.print("Eight bytes: {} {}\nUTF-16: {x}\n", .{ std.fmt.fmtSliceHexUpper(&eight_bytes[0]), std.fmt.fmtSliceHexUpper(&eight_bytes[1]), utf16 });
+            var utf8: [8]u8 = undefined;
+            const utf8_len = std.unicode.utf16leToUtf8(&utf8, utf16[0..escape_groups.len]) catch return ParseError.StringInvalidEscape;
+            // std.debug.print("UTF-8 len: {}\n", .{utf8_len});
+            // std.debug.print("UTF-8: {}", .{std.fmt.fmtSliceHexUpper(utf8[0..utf8_len])});
+            try string.appendSlice(utf8[0..utf8_len]);
         },
         else => return ParseError.StringInvalidEscape,
     }
