@@ -19,9 +19,18 @@ fn is_ascii(char: ?u8) bool {
         return true;
 }
 
+pub const RootJsonValue = struct {
+    value: JsonValue,
+    allocator: std.heap.ArenaAllocator,
+    pub fn deinit(self: @This()) void {
+        self.allocator.deinit();
+    }
+};
+
 pub const JsonValue = union(enum) {
-    Object: JsonObject,
-    Array: ArrayList(JsonValue),
+    Object: *JsonObject,
+    // Array: ArrayList(JsonValue),
+    Array: []JsonValue,
     String: []u8,
     Number: f64,
     Boolean: bool,
@@ -32,10 +41,12 @@ pub const JsonValue = union(enum) {
         switch (self) {
             .String => |string| allocator.free(string),
             .Array => |array| {
-                for (array.items) |value| {
+                for (array) |value| {
+                    // for (array.items) |value| {
                     value.deinit(allocator);
                 }
-                array.deinit();
+                allocator.free(array);
+                // array.deinit();
             },
             .Object => |object| {
                 var iterator = object.iterator();
@@ -43,10 +54,43 @@ pub const JsonValue = union(enum) {
                     kv.value_ptr.*.deinit(allocator);
                     allocator.free(kv.key_ptr.*);
                 }
-                var object_m = object;
+                var object_m = object.*;
                 object_m.unmanaged.deinit(allocator);
+                allocator.destroy(object);
             },
             .Boolean, .Null, .Number => {},
+        }
+    }
+
+    fn deepClone(self: *const @This(), new_alloc: Allocator) !JsonValue {
+        switch (self.*) {
+            .String => |*string| {
+                var buf = try new_alloc.alloc(u8, string.len);
+                mem.copy(u8, buf, string.*);
+                return .{ .String = buf };
+            },
+            .Array => |array| {
+                var buf = try new_alloc.alloc(JsonValue, array.len);
+                mem.copy(JsonValue, buf, array);
+                for (buf) |*value| {
+                    value.* = try value.deepClone(new_alloc);
+                }
+                return .{ .Array = buf };
+            },
+            .Object => |object| {
+                var new_obj = try object.*.cloneWithAllocator(new_alloc);
+                var iterator = new_obj.iterator();
+                while (iterator.next()) |*kv| {
+                    kv.value_ptr.* = try kv.value_ptr.*.deepClone(new_alloc);
+                    var key_buf = try new_alloc.alloc(u8, kv.key_ptr.len);
+                    mem.copy(u8, key_buf, kv.key_ptr.*);
+                    kv.key_ptr.* = key_buf;
+                }
+                return .{ .Object = &new_obj };
+            },
+            .Boolean => |val| return .{ .Boolean = val },
+            .Number => |val| return .{ .Number = val },
+            .Null => return .Null,
         }
     }
 
@@ -85,9 +129,11 @@ pub const JsonValue = union(enum) {
             .Number => |val| try std.fmt.format(writer, "{d}", .{val}),
             .Array => |arr| {
                 try std.fmt.format(writer, "[", .{});
-                for (arr.items) |itm, i| {
+                for (arr) |itm, i| {
+                    // for (arr.items) |itm, i| {
                     try itm.format(fmt, opts, writer);
-                    if (i < arr.items.len - 1) {
+                    if (i < arr.len - 1) {
+                        // if (i < arr.items.len - 1) {
                         try std.fmt.format(writer, ",", .{});
                     }
                 }
@@ -144,26 +190,31 @@ pub fn main() !void {
         else
             break :x try std.fs.cwd().readFileAlloc(allocator, file_name, std.math.maxInt(isize));
     };
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    const arena_alloc = arena.allocator();
-    const val = try parse(&json_body, arena_alloc);
-    defer arena.deinit();
+    const val = try parse(&json_body, allocator);
     if (args.args.print) {
         return std.io.getStdOut().writer().print("{}\n", .{val});
     }
 }
 
-pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!JsonValue {
+pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!RootJsonValue {
     if (json_buf.len >= 0x20000000) {
         return ParseError.FileTooLong; // 500 MiB is longest file size
     }
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer arena.deinit();
+
+    const arena_alloc = arena.allocator();
     var json = SliceIterator(u8).from_slice(json_buf);
     var state: ParseState = .Value;
-    var value: JsonValue = try parseNext(&json, state, allocator);
+
+    const value: JsonValue = parseNext(&json, state, arena_alloc) catch |err| {
+        std.debug.print("{}\n. Remaining json: \"{s}\"\n", .{ err, json.ptr[0..json.len] });
+        return err;
+    };
     if (json.len > 0) {
         return ParseError.ExpectedEndOfFile;
     }
-    return value;
+    return RootJsonValue{ .value = value, .allocator = arena };
 }
 
 fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) ParseError!JsonValue {
@@ -186,7 +237,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                     json.ignoreNext();
                     return try parseNext(json, .Array, allocator);
                 }
-                if (json.peek_multiple(4)) |next_4| {
+                if (json.peekMany(4)) |next_4| {
                     if (mem.eql(u8, &next_4, "null")) {
                         _ = json.take(4) orelse unreachable;
                         return JsonValue.Null;
@@ -195,7 +246,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                         _ = json.take(4) orelse unreachable;
                         return .{ .Boolean = true };
                     }
-                    if (json.peek_multiple(5)) |next_5| {
+                    if (json.peekMany(5)) |next_5| {
                         if (mem.eql(u8, &next_5, "false")) {
                             _ = json.take(5) orelse unreachable;
                             return .{ .Boolean = false };
@@ -216,7 +267,8 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 }
                 if ((json.peekCopy() orelse return ParseError.ExpectedNextValue) == ']') {
                     json.ignoreNext();
-                    return .{ .Array = contents };
+                    return .{ .Array = contents.toOwnedSlice() };
+                    // return .{ .Array = contents };
                 }
                 while (true) {
                     ignoreWs(json);
@@ -231,10 +283,12 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                     }
                 }
                 contents.shrinkRetainingCapacity(contents.items.len);
-                return .{ .Array = contents };
+                return .{ .Array = contents.toOwnedSlice() };
+                // return .{ .Array = contents };
             },
             .Object => {
-                var contents = JsonObject.init(allocator);
+                var contents = try allocator.create(JsonObject);
+                contents.* = JsonObject.init(allocator);
                 errdefer {
                     var iterator = contents.iterator();
                     while (iterator.next()) |kv| {
@@ -324,24 +378,28 @@ test "json string" {
     try std.testing.expectEqualStrings("test, test,\n\xFF\x02\xFF", string_ret);
 }
 
+test "sizes" {
+    std.debug.print("JsonValue: {}\nRootJsonValue: {}\n[]JsonValue: {}\nJsonObject: {}\nArrayList(JsonValue): {}\n*JsonObject: {}\n[]u8: {}\n", .{ @sizeOf(JsonValue), @sizeOf(RootJsonValue), @sizeOf([]JsonValue), @sizeOf(JsonObject), @sizeOf(ArrayList(JsonValue)), @sizeOf(*JsonObject), @sizeOf([]u8) });
+}
+
 test "json array" {
     const string = ("[5   ,\n\n" ** 400) ++ "[\"algo\", 3.1415926535, 5.2e+50, \"\",null,true,false,[],[],[],[[[[[[[[[[[[[[]]]]]]]]]]]]]]]" ++ ("]" ** 400);
     const ret = try parse(&mem.span(string), std.testing.allocator);
     std.debug.print("{}\n", .{ret});
-    defer ret.deinit(std.testing.allocator);
+    defer ret.deinit();
 }
 
 test "json atoms" {
     const string = "[null,true,false,null,true,       false]";
     const ret = try parse(&mem.span(string), std.testing.allocator);
-    defer ret.deinit(std.testing.allocator);
+    defer ret.deinit();
 }
 
 test "json object" {
     const string = "{\n\t\t\"name\":\"Steve\"\n\t}";
     const ret = try parse(&mem.span(string), std.testing.allocator);
-    defer ret.deinit(std.testing.allocator);
-    switch (ret) {
+    defer ret.deinit();
+    switch (ret.value) {
         .Object => |object| {
             switch (object.get("name") orelse return error.ExpectedName) {
                 .String => |str| try std.testing.expectEqualStrings("Steve", str),
@@ -356,7 +414,7 @@ test "invalid json array" {
     // Testing for memory leaks during parsing mostly
     const string = "[1,2,\"string\",\"spring\",[1,  0.5, 3.2e+7, face], bull]";
     if (parse(&mem.span(string), std.testing.allocator)) |ret| {
-        ret.deinit(std.testing.allocator);
+        ret.deinit();
         return error.ShouldNotCompleteParsing;
     } else |err| {
         try std.testing.expectEqual(ParseError.ExpectedNextValue, err);

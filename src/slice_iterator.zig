@@ -47,7 +47,18 @@ pub fn SliceIterator(comptime T: type) type {
             }
         }
         /// Fails completely if len is less than items, leaves items in slice
-        pub fn take(self: *Self, number: usize) ?[]const T {
+        pub fn take(self: *Self, comptime number: usize) ?[number]T {
+            if (self.len >= number) {
+                const items = self.ptr[0..number];
+                self.ptr += @sizeOf(T) * number;
+                self.len -= number;
+                return items.*;
+            } else {
+                return null;
+            }
+        }
+        /// Fails completely if len is less than items, leaves items in slice
+        pub fn dynTake(self: *Self, number: usize) ?[]const T {
             if (self.len >= number) {
                 const items = self.ptr[0..number];
                 self.ptr += @sizeOf(T) * number;
@@ -59,13 +70,25 @@ pub fn SliceIterator(comptime T: type) type {
         }
         /// Fails completely if len is less than items
         /// Returns owned array, no worries about pointers
-        pub fn peek_multiple(self: *const Self, comptime n: usize) ?[n]T {
+        pub fn peekMany(self: *const Self, comptime n: usize) ?[n]T {
             if (self.len >= n) {
                 var out: [n]T = undefined;
                 mem.copy(u8, out[0..], self.ptr[0..n]);
                 return out;
             } else {
                 return null;
+            }
+        }
+
+        /// Does nothing if slice runs out
+        pub fn ignoreMany(self: *Self, n: usize) void {
+            if (n == 0) return;
+            if (self.len >= n) {
+                self.ptr += n;
+                self.len -= n;
+            } else {
+                self.ptr += self.len;
+                self.len = 0;
             }
         }
     };

@@ -15,6 +15,8 @@ pub fn build(b: *std.build.Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.addPackagePath("clap", "libs/zig-clap/clap.zig");
+    exe.strip = mode == .ReleaseFast;
+    exe.dead_strip_dylibs = mode == .ReleaseFast;
     exe.install();
 
     var sign_step = b.step("sign", "Sign the app");
