@@ -229,6 +229,7 @@ pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!RootJ
         std.debug.print("{}\n. Remaining json: \"{s}\"\n", .{ err, json.ptr[0..json.len] });
         return err;
     };
+    ignoreWs(&json);
     if (json.len > 0) {
         return ParseError.ExpectedEndOfFile;
     }
