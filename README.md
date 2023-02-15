@@ -10,7 +10,7 @@ Each command was run several times, with the best time taken. The zsh `time` uti
 | tests/random.json        | std.json            | 428114          | 0.602       |
 | tests/food.json          | zig-json            | 1488            | 0.003       |
 | tests/food.json          | std.json            | 1600            | 0.003       |
-| tests/geojson.json       | zig-json            | 2480            | 0.007       |
-| tests/geojson.json       | std.json            | 3056            | 0.008       |
+| tests/geojson.json       | zig-json            | 59008           | 0.056       |
+| tests/geojson.json       | std.json            | 84528           | 0.092       |
 
 
