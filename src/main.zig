@@ -10,7 +10,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 
-const JsonObject = std.StringHashMap(JsonValue);
+const JsonObject = std.StringArrayHashMap(JsonValue);
 
 fn isUtf8(char: ?u8) bool {
     if (char) |c|
@@ -30,8 +30,8 @@ pub const RootJsonValue = struct {
 pub const JsonValue = union(enum) {
     Object: *JsonObject,
     // Array: ArrayList(JsonValue),
-    Array: []JsonValue,
-    String: []u8,
+    Array: *[]JsonValue,
+    String: *[]u8,
     Number: f64,
     Boolean: bool,
     Null,
@@ -39,13 +39,17 @@ pub const JsonValue = union(enum) {
     /// Frees all memory used by the JsonValue
     fn deinit(self: @This(), allocator: Allocator) void {
         switch (self) {
-            .String => |string| allocator.free(string),
+            .String => |string| {
+                allocator.free(string.*);
+                allocator.destroy(string);
+            },
             .Array => |array| {
-                for (array) |value| {
+                for (array.*) |value| {
                     // for (array.items) |value| {
                     value.deinit(allocator);
                 }
-                allocator.free(array);
+                allocator.free(array.*);
+                allocator.destroy(array);
                 // array.deinit();
             },
             .Object => |object| {
@@ -98,7 +102,7 @@ pub const JsonValue = union(enum) {
         switch (value) {
             .String => |str| {
                 try std.fmt.format(writer, "\"", .{});
-                var iterator = SliceIterator(u8).from_slice(&str);
+                var iterator = SliceIterator(u8).from_slice(str);
                 while (iterator.next()) |char| {
                     if (char == '"') {
                         try std.fmt.format(writer, "\\\"", .{});
@@ -118,6 +122,18 @@ pub const JsonValue = union(enum) {
                                 outer: {
                                     inner: {
                                         if (is_byte_sequence) |len| {
+                                            if (iterator.peekManyRef(len - 1)) |other_bytes| {
+                                                var utf8_buf: [4]u8 = undefined;
+                                                utf8_buf[0] = char;
+                                                for (other_bytes) |v, i| {
+                                                    utf8_buf[i + 1] = v;
+                                                }
+                                                if (std.unicode.utf8ValidateSlice(utf8_buf[0..len])) {
+                                                    iterator.ignoreMany(len - 1);
+                                                    try std.fmt.format(writer, "{s}", .{utf8_buf[0..len]});
+                                                    break :outer;
+                                                }
+                                            }
                                             var utf8_buf: [4]u8 = undefined;
                                             utf8_buf[0] = char;
                                             var i: usize = 1;
@@ -131,7 +147,7 @@ pub const JsonValue = union(enum) {
                                                 try std.fmt.format(writer, "\\u{x:0>4}", .{utf16_buf[j]});
                                             }
                                             break :outer;
-                                        } else break :inner;
+                                        }
                                     }
 
                                     try std.fmt.format(writer, "\\u00{x}", .{char});
@@ -147,7 +163,7 @@ pub const JsonValue = union(enum) {
             .Number => |val| try std.fmt.format(writer, "{d}", .{val}),
             .Array => |arr| {
                 try std.fmt.format(writer, "[", .{});
-                for (arr) |itm, i| {
+                for (arr.*) |itm, i| {
                     // for (arr.items) |itm, i| {
                     try itm.format(fmt, opts, writer);
                     if (i < arr.len - 1) {
@@ -183,9 +199,11 @@ pub fn main() !void {
     var gpa = heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     // const allocator = std.heap.c_allocator;
+    // const allocator = std.heap.page_allocator;
     const params = comptime clap.parseParamsComptime(
         \\-h, --help     display this help and exit.
         \\-p, --print    print the JSON file
+        \\-s, --stdlib   use the stdlib JSON parser instead of zig-json implementation
         \\<FILE>         path to JSON file to read, or `-` for stdin
         \\
     );
@@ -208,9 +226,22 @@ pub fn main() !void {
         else
             break :x try std.fs.cwd().readFileAlloc(allocator, file_name, std.math.maxInt(isize));
     };
-    const val = try parse(&json_body, allocator);
-    if (args.args.print) {
-        return std.io.getStdOut().writer().print("{}\n", .{val.value});
+    // const val = try parse(&json_body, allocator);
+    if (args.args.stdlib) {
+        var val = x: {
+            var parser = std.json.Parser.init(allocator, true);
+            break :x try parser.parse(json_body);
+        };
+        defer val.deinit();
+        if (args.args.print) {
+            try std.io.getStdOut().writer().print("{}\n", .{val.root});
+        }
+    } else {
+        const val = try parse(&json_body, allocator);
+        defer val.deinit();
+        if (args.args.print) {
+            try std.io.getStdOut().writer().print("{}\n", .{val.value});
+        }
     }
 }
 
@@ -244,7 +275,10 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
         switch (state) {
             .Value => {
                 if (isString(char)) {
-                    return .{ .String = try readString(json, allocator) };
+                    var string = try allocator.create([]u8);
+                    errdefer allocator.destroy(string);
+                    string.* = try readString(json, allocator);
+                    return .{ .String = string };
                 }
                 if (isNumber(char)) {
                     return .{ .Number = try readNumber(json) };
@@ -287,7 +321,9 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 }
                 if ((json.peekCopy() orelse return ParseError.ExpectedNextValue) == ']') {
                     json.ignoreNext();
-                    return .{ .Array = contents.toOwnedSlice() };
+                    var array = try allocator.create([]JsonValue);
+                    array.* = contents.toOwnedSlice();
+                    return .{ .Array = array };
                     // return .{ .Array = contents };
                 }
                 while (true) {
@@ -303,7 +339,9 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                     }
                 }
                 contents.shrinkRetainingCapacity(contents.items.len);
-                return .{ .Array = contents.toOwnedSlice() };
+                var array = try allocator.create([]JsonValue);
+                array.* = contents.toOwnedSlice();
+                return .{ .Array = array };
                 // return .{ .Array = contents };
             },
             .Object => {
@@ -422,7 +460,7 @@ test "json object" {
     switch (ret.value) {
         .Object => |object| {
             switch (object.get("name") orelse return error.ExpectedName) {
-                .String => |str| try std.testing.expectEqualStrings("Steve", str),
+                .String => |str| try std.testing.expectEqualStrings("Steve", str.*),
                 else => return error.ExpectedString,
             }
         },

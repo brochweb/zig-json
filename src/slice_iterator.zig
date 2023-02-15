@@ -80,6 +80,15 @@ pub fn SliceIterator(comptime T: type) type {
             }
         }
 
+        /// Fails completely if len is less than items
+        pub fn peekManyRef(self: *const Self, n: usize) ?[]const T {
+            if (self.len >= n) {
+                return self.ptr[0..n];
+            } else {
+                return null;
+            }
+        }
+
         /// Does nothing if slice runs out
         pub fn ignoreMany(self: *Self, n: usize) void {
             if (n == 0) return;

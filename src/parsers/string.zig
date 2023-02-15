@@ -105,7 +105,15 @@ inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayLis
             }
             // std.debug.print("Eight bytes: {} {}\nUTF-16: {x}\n", .{ std.fmt.fmtSliceHexUpper(&eight_bytes[0]), std.fmt.fmtSliceHexUpper(&eight_bytes[1]), utf16 });
             var utf8: [8]u8 = undefined;
-            const utf8_len = std.unicode.utf16leToUtf8(&utf8, utf16[0..escape_groups.len]) catch return ParseError.StringInvalidEscape;
+            const utf8_len = std.unicode.utf16leToUtf8(&utf8, utf16[0..escape_groups.len]) catch {
+                const bytes = std.mem.toBytes(utf16);
+                for (bytes) |byte| {
+                    if (byte != 0) {
+                        try string.append(byte);
+                    }
+                }
+                return;
+            };
             // std.debug.print("UTF-8 len: {}\n", .{utf8_len});
             // std.debug.print("UTF-8: {}", .{std.fmt.fmtSliceHexUpper(utf8[0..utf8_len])});
             try string.appendSlice(utf8[0..utf8_len]);
