@@ -180,9 +180,9 @@ const ParseState = enum { Value, Object, Array };
 pub const ParseError = error{ StringInvalidEscape, ExpectedEndOfString, ExpectedEndOfFile, ExpectedString, ExpectedNextValue, ExpectedColon, OutOfMemory, FileTooLong, InvalidNumberLiteral, SystemError };
 
 pub fn main() !void {
-    // var gpa = heap.GeneralPurposeAllocator(.{}){};
-    // const allocator = gpa.allocator();
-    const allocator = std.heap.c_allocator;
+    var gpa = heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    // const allocator = std.heap.c_allocator;
     const params = comptime clap.parseParamsComptime(
         \\-h, --help     display this help and exit.
         \\-p, --print    print the JSON file
