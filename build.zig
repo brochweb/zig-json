@@ -41,7 +41,7 @@ pub fn build(b: *std.build.Builder) void {
 }
 
 fn codesign(_: *std.build.Step) !void {
-    var proc = std.ChildProcess.init(&[_][]const u8{ "xcrun", "codesign", "-s", "U35BT7XSLA", "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
+    var proc = std.ChildProcess.init(&[_][]const u8{ "xcrun", "codesign", "-s", std.os.getenv("XCODE_ID") orelse return error.NoXcodeId, "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
     try proc.spawn();
     _ = try proc.wait();
 }
