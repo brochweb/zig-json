@@ -112,14 +112,18 @@ pub const JsonValue = union(enum) {
                         try std.fmt.format(writer, "{c}", .{char});
                     } else {
                         switch (char) {
-                            8 => try std.fmt.format(writer, "\\b", .{}),
-                            12 => try std.fmt.format(writer, "\\f", .{}),
-                            10 => try std.fmt.format(writer, "\\n", .{}),
-                            13 => try std.fmt.format(writer, "\\r", .{}),
-                            9 => try std.fmt.format(writer, "\\t", .{}),
+                            0x08 => try std.fmt.format(writer, "\\b", .{}),
+                            0x0C => try std.fmt.format(writer, "\\f", .{}),
+                            0x0A => try std.fmt.format(writer, "\\n", .{}),
+                            0x0D => try std.fmt.format(writer, "\\r", .{}),
+                            0x09 => try std.fmt.format(writer, "\\t", .{}),
                             else => {
-                                const is_byte_sequence: ?u3 = std.unicode.utf8ByteSequenceLength(char) catch null;
                                 outer: {
+                                    if (char <= 0x1F) {
+                                        try std.fmt.format(writer, "\\u00{X:0>2}", .{char});
+                                        break :outer;
+                                    }
+                                    const is_byte_sequence: ?u3 = std.unicode.utf8ByteSequenceLength(char) catch null;
                                     inner: {
                                         if (is_byte_sequence) |len| {
                                             if (iterator.peekManyRef(len - 1)) |other_bytes| {
@@ -150,7 +154,7 @@ pub const JsonValue = union(enum) {
                                         }
                                     }
 
-                                    try std.fmt.format(writer, "\\u00{x}", .{char});
+                                    try std.fmt.format(writer, "{c}", .{char});
                                 }
                             },
                         }
@@ -193,7 +197,7 @@ pub const JsonValue = union(enum) {
 };
 const ParseState = enum { Value, Object, Array };
 
-pub const ParseError = error{ StringInvalidEscape, ExpectedEndOfString, ExpectedEndOfFile, ExpectedString, ExpectedNextValue, ExpectedColon, OutOfMemory, FileTooLong, InvalidNumberLiteral, SystemError };
+pub const ParseError = error{ StringInvalidEscape, InvalidString, ExpectedEndOfString, ExpectedEndOfFile, ExpectedString, ExpectedNextValue, ExpectedColon, OutOfMemory, FileTooLong, InvalidNumberLiteral, SystemError };
 
 pub fn main() !void {
     var gpa = heap.GeneralPurposeAllocator(.{}){};
@@ -429,11 +433,11 @@ fn copy_slice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
 }
 
 test "json string" {
-    var string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\"";
+    var string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\\u0003\\f\"";
     var mut_slice = SliceIterator(u8).from_slice(&mem.span(string));
     const string_ret = try readString(&mut_slice, std.testing.allocator);
     defer std.testing.allocator.free(string_ret);
-    try std.testing.expectEqualStrings("test, test,\n🎸🦕㻘", string_ret);
+    try std.testing.expectEqualStrings("test, test,\n🎸🦕㻘\x03\x0C", string_ret);
 }
 
 test "sizes" {

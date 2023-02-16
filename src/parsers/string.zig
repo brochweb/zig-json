@@ -70,12 +70,12 @@ pub fn readString(json: *SliceIterator(u8), allocator: Allocator) ParseError![]u
 
 inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayList(u8), json: *SliceIterator(u8)) ParseError!void {
     switch (char) {
-        '"', '\\' => try string.append(char),
-        'b' => try string.append(8), // Backspace character
-        'f' => try string.append(12), // Formfeed character
-        'n' => try string.append(10), // Newline character
-        'r' => try string.append(13), // Carriage return character
-        't' => try string.append(9), // Tab character
+        '"', '\\', '/' => try string.append(char),
+        'b' => try string.append(0x08), // Backspace character
+        'f' => try string.append(0x0C), // Formfeed character
+        'n' => try string.append(0x0A), // Newline character
+        'r' => try string.append(0x0D), // Carriage return character
+        't' => try string.append(0x09), // Tab character
         'u' => {
             if (to_ignore) |ignore| {
                 // std.debug.print("Ignoring {d} bytes because escaping char\n", .{ignore.*});
@@ -106,10 +106,11 @@ inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayLis
             // std.debug.print("Eight bytes: {} {}\nUTF-16: {x}\n", .{ std.fmt.fmtSliceHexUpper(&eight_bytes[0]), std.fmt.fmtSliceHexUpper(&eight_bytes[1]), utf16 });
             var utf8: [8]u8 = undefined;
             const utf8_len = std.unicode.utf16leToUtf8(&utf8, utf16[0..escape_groups.len]) catch {
-                const bytes = std.mem.toBytes(utf16);
-                for (bytes) |byte| {
-                    if (byte != 0) {
-                        try string.append(byte);
+                for (utf16) |val| {
+                    if (val <= 0x1F) {
+                        try string.append(@truncate(u8, val));
+                    } else {
+                        return ParseError.InvalidString;
                     }
                 }
                 return;
