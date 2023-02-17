@@ -7,7 +7,7 @@ pub fn SliceIterator(comptime T: type) type {
         ptr: [*]const T,
         len: usize,
         /// Source of the slice MUST last for at least as long as the SliceIterator
-        pub fn from_slice(slice: *const []const T) Self {
+        pub fn from_slice(slice: []const T) Self {
             return Self{ .ptr = slice.ptr, .len = slice.len };
         }
         pub fn next(self: *Self) ?T {

@@ -102,7 +102,7 @@ pub const JsonValue = union(enum) {
         switch (value) {
             .String => |str| {
                 try std.fmt.format(writer, "\"", .{});
-                var iterator = SliceIterator(u8).from_slice(str);
+                var iterator = SliceIterator(u8).from_slice(str.*);
                 while (iterator.next()) |char| {
                     if (char == '"') {
                         try std.fmt.format(writer, "\\\"", .{});
@@ -241,7 +241,7 @@ pub fn main() !void {
             try std.io.getStdOut().writer().print("{}\n", .{val.root});
         }
     } else {
-        const val = try parse(&json_body, allocator);
+        const val = try parse(json_body, allocator);
         defer val.deinit();
         if (args.args.print) {
             try std.io.getStdOut().writer().print("{}\n", .{val.value});
@@ -249,7 +249,7 @@ pub fn main() !void {
     }
 }
 
-pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!RootJsonValue {
+pub fn parse(json_buf: []const u8, allocator: Allocator) ParseError!RootJsonValue {
     if (json_buf.len >= 0x20000000) {
         return ParseError.FileTooLong; // 500 MiB is longest file size
     }
