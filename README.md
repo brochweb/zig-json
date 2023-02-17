@@ -5,6 +5,8 @@
 
 This is a research project, it is not tested for production, but only provided as an example zig program to optimize. Suggestions for improving reliability, speed or memory usage are welcome.
 
+For more information, read [my blog post](https://www.brochweb.com/blog/post/optimizing-a-json-parser-in-zig/).
+
 ## Benchmarks
 
 Each command was run several times, with the best time taken. The zsh `time` utility with a `$TIMEFMT` that shows memory was used for benchmarking.
