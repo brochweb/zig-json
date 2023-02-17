@@ -33,7 +33,7 @@ pub fn readNumber(json: *SliceIterator(u8)) ParseError!f64 {
 }
 
 fn parseUnsignedNumber(json: *SliceIterator(u8)) ParseError!f64 {
-    var num_buf: [324]u8 = undefined;
+    var num_buf: [320]u8 = undefined;
     var num_length: usize = 0;
     while (json.peekCopy()) |char| {
         switch (char) {
