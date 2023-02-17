@@ -62,7 +62,7 @@ pub const JsonValue = union(enum) {
                 object_m.unmanaged.deinit(allocator);
                 allocator.destroy(object);
             },
-            .Boolean, .Null, .Number => {},
+            else => {},
         }
     }
 
@@ -434,7 +434,7 @@ fn copy_slice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
 
 test "json string" {
     var string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\\u0003\\f\"";
-    var mut_slice = SliceIterator(u8).from_slice(&mem.span(string));
+    var mut_slice = SliceIterator(u8).from_slice(mem.span(string));
     const string_ret = try readString(&mut_slice, std.testing.allocator);
     defer std.testing.allocator.free(string_ret);
     try std.testing.expectEqualStrings("test, test,\n🎸🦕㻘\x03\x0C", string_ret);
@@ -446,20 +446,20 @@ test "sizes" {
 
 test "json array" {
     const string = ("[5   ,\n\n" ** 400) ++ "[\"algo\", 3.1415926535, 5.2e+50, \"\",null,true,false,[],[],[],[[[[[[[[[[[[[[]]]]]]]]]]]]]]]" ++ ("]" ** 400);
-    const ret = try parse(&mem.span(string), std.testing.allocator);
+    const ret = try parse(mem.span(string), std.testing.allocator);
     std.debug.print("{}\n", .{ret});
     defer ret.deinit();
 }
 
 test "json atoms" {
     const string = "[null,true,false,null,true,       false]";
-    const ret = try parse(&mem.span(string), std.testing.allocator);
+    const ret = try parse(mem.span(string), std.testing.allocator);
     defer ret.deinit();
 }
 
 test "json object" {
     const string = "{\n\t\t\"name\":\"Steve\"\n\t}";
-    const ret = try parse(&mem.span(string), std.testing.allocator);
+    const ret = try parse(mem.span(string), std.testing.allocator);
     defer ret.deinit();
     switch (ret.value) {
         .Object => |object| {
@@ -475,7 +475,7 @@ test "json object" {
 test "invalid json array" {
     // Testing for memory leaks during parsing mostly
     const string = "[1,2,\"string\",\"spring\",[1,  0.5, 3.2e+7, face], bull]";
-    if (parse(&mem.span(string), std.testing.allocator)) |ret| {
+    if (parse(mem.span(string), std.testing.allocator)) |ret| {
         ret.deinit();
         return error.ShouldNotCompleteParsing;
     } else |err| {
