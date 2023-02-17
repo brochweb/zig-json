@@ -205,10 +205,10 @@ pub fn main() !void {
     // const allocator = std.heap.c_allocator;
     // const allocator = std.heap.page_allocator;
     const params = comptime clap.parseParamsComptime(
+        \\<FILE>         path to JSON file to read, or `-` for stdin
         \\-h, --help     display this help and exit.
         \\-p, --print    print the JSON file
         \\-s, --stdlib   use the stdlib JSON parser instead of zig-json implementation
-        \\<FILE>         path to JSON file to read, or `-` for stdin
         \\
     );
     var diag = clap.Diagnostic{};
@@ -255,16 +255,19 @@ pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!RootJ
     }
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
+    var tmp_arena = std.heap.ArenaAllocator.init(allocator);
 
     const arena_alloc = arena.allocator();
+    const tmp_alloc = tmp_arena.allocator();
     var json = SliceIterator(u8).from_slice(json_buf);
     var state: ParseState = .Value;
 
     ignoreWs(&json);
-    const value: JsonValue = parseNext(&json, state, arena_alloc) catch |err| {
+    const value: JsonValue = parseNext(&json, state, arena_alloc, tmp_alloc) catch |err| {
         std.debug.print("{}\n. Remaining json: \"{s}\"\n", .{ err, json.ptr[0..json.len] });
         return err;
     };
+    tmp_arena.deinit(); // It’s only for temporary stuff
     ignoreWs(&json);
     if (json.len > 0) {
         return ParseError.ExpectedEndOfFile;
@@ -272,7 +275,7 @@ pub fn parse(json_buf: *const []const u8, allocator: Allocator) ParseError!RootJ
     return RootJsonValue{ .value = value, .allocator = arena };
 }
 
-fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) ParseError!JsonValue {
+fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator, tmp_alloc: Allocator) ParseError!JsonValue {
     ignoreWs(json);
     const ch = json.peekCopy();
     if (ch) |char| {
@@ -289,11 +292,11 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 }
                 if (isObject(char)) {
                     json.ignoreNext();
-                    return try parseNext(json, .Object, allocator);
+                    return try parseNext(json, .Object, allocator, tmp_alloc);
                 }
                 if (isArray(char)) {
                     json.ignoreNext();
-                    return try parseNext(json, .Array, allocator);
+                    return try parseNext(json, .Array, allocator, tmp_alloc);
                 }
                 if (json.peekMany(4)) |next_4| {
                     if (mem.eql(u8, &next_4, "null")) {
@@ -316,7 +319,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 return ParseError.ExpectedNextValue;
             },
             .Array => {
-                var contents = ArrayList(JsonValue).init(allocator);
+                var contents = ArrayList(JsonValue).init(tmp_alloc);
                 errdefer {
                     for (contents.items) |itm| {
                         itm.deinit(allocator);
@@ -326,14 +329,17 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 if ((json.peekCopy() orelse return ParseError.ExpectedNextValue) == ']') {
                     json.ignoreNext();
                     var array = try allocator.create([]JsonValue);
-                    array.* = contents.toOwnedSlice();
+                    array.* = try allocator.dupe(JsonValue, contents.items);
+                    // Actually does something because it is always acting on the last value
+                    // in tmp_alloc
+                    contents.deinit();
+
                     return .{ .Array = array };
-                    // return .{ .Array = contents };
                 }
                 while (true) {
                     ignoreWs(json);
 
-                    try contents.append(try parseNext(json, .Value, allocator));
+                    try contents.append(try parseNext(json, .Value, allocator, tmp_alloc));
                     ignoreWs(json);
 
                     switch (json.next() orelse return ParseError.ExpectedNextValue) {
@@ -342,26 +348,32 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                         else => return ParseError.ExpectedNextValue,
                     }
                 }
-                contents.shrinkRetainingCapacity(contents.items.len);
                 var array = try allocator.create([]JsonValue);
-                array.* = contents.toOwnedSlice();
+                array.* = try allocator.dupe(JsonValue, contents.items);
+                // Actually does something because it is always acting on the last value
+                // in tmp_alloc
+                contents.deinit();
+
                 return .{ .Array = array };
-                // return .{ .Array = contents };
             },
             .Object => {
                 var contents = try allocator.create(JsonObject);
-                contents.* = JsonObject.init(allocator);
+                contents.* = JsonObject.init(tmp_alloc);
                 errdefer {
                     var iterator = contents.iterator();
                     while (iterator.next()) |kv| {
                         kv.value_ptr.*.deinit(allocator);
                         allocator.free(kv.key_ptr.*);
                     }
+                    contents.deinit();
                 }
                 ignoreWs(json);
                 const next = json.peekCopy() orelse return ParseError.ExpectedNextValue;
                 if (next == '}') {
                     json.ignoreNext();
+                    const clone = try contents.cloneWithAllocator(allocator);
+                    contents.deinit();
+                    contents.* = clone;
                     return .{ .Object = contents };
                 }
                 while (true) {
@@ -372,7 +384,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                         return ParseError.ExpectedColon;
                     }
                     ignoreWs(json);
-                    const value = try parseNext(json, .Value, allocator);
+                    const value = try parseNext(json, .Value, allocator, tmp_alloc);
                     try contents.put(key, value);
                     ignoreWs(json);
                     switch (json.next() orelse return ParseError.ExpectedNextValue) {
@@ -381,6 +393,9 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                         else => return ParseError.ExpectedNextValue,
                     }
                 }
+                const clone = try contents.cloneWithAllocator(allocator);
+                contents.deinit();
+                contents.* = clone;
                 return .{ .Object = contents };
             },
         }
