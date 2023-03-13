@@ -1,4 +1,5 @@
-const mem = @import("std").mem;
+const std = @import("std");
+const mem = std.mem;
 
 /// Works over memory owned by another function
 pub fn SliceIterator(comptime T: type) type {
@@ -99,6 +100,24 @@ pub fn SliceIterator(comptime T: type) type {
                 self.ptr += self.len;
                 self.len = 0;
             }
+        }
+
+        pub fn takeWhileNeSimd(self: *Self, comptime len: comptime_int, comptime conditions: [len]@Vector(16, u8)) []const u8 {
+            var op_len: usize = 0;
+            const op_ptr = self.ptr;
+            outer: while (self.len >= 16) {
+                const vec: @Vector(16, u8) = self.ptr[0..16].*;
+                inline for (conditions) |condition| {
+                    if (@reduce(.Or, vec == condition)) {
+                        break :outer;
+                    }
+                }
+                // Both succeeded
+                self.ptr += 16;
+                op_len += 16;
+                self.len -= 16;
+            }
+            return op_ptr[0..op_len];
         }
     };
 }

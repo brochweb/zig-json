@@ -10,59 +10,21 @@ pub fn readString(json: *SliceIterator(u8), allocator: Allocator) ParseError![]u
     if (json.next() orelse 0 != '"') {
         return ParseError.ExpectedString;
     }
-    while (json.peekMany(8)) |chars| {
-        // ASCII optimization
-        if (chars[0] != '\\' and chars[0] != '"' and chars[1] != '\\' and chars[1] != '"' and chars[2] != '\\' and chars[2] != '"' and chars[3] != '\\' and chars[3] != '"' and chars[4] != '\\' and chars[4] != '"' and chars[5] != '\\' and chars[5] != '"' and chars[6] != '\\' and chars[6] != '"' and chars[7] != '\\' and chars[7] != '"') {
-            try string.appendSlice(&chars);
-            json.ignoreMany(8);
-            // std.debug.print("Ignored these bytes because not special: {s}\n", .{chars});
-            continue;
-        }
-        var i: usize = 0;
-        var to_ignore: usize = 0;
-        while (i < chars.len) : (i += 1) {
-            const char = chars[i];
+    while (json.len > 0) {
+        const slice = json.takeWhileNeSimd(2, [2]@Vector(16, u8){ @splat(16, @as(u8, '"')), @splat(16, @as(u8, '\\')) });
+        try string.appendSlice(slice);
+
+        var i: u8 = 0;
+        while (i < 16) : (i += 1) {
+            const char = json.next() orelse break;
             switch (char) {
                 '\\' => {
-                    const next_char = block: {
-                        if (i + 1 < chars.len) {
-                            i += 1;
-                            to_ignore += 2; // Because to_ignore is not auto-incremented like `i` is
-                            break :block chars[i];
-                        } else {
-                            // It means this is the last element, so this is safe:
-                            // std.debug.print("Ignored these bytes: {s}\n", .{json.dynTake(to_ignore + 1) orelse unreachable});
-                            json.ignoreMany(to_ignore + 1); // One for backslash
-                            to_ignore = 0;
-                            break :block json.next() orelse return ParseError.StringInvalidEscape;
-                        }
-                    };
-                    // std.debug.print("Escaping {c}\n", .{next_char});
-                    try escape(next_char, &to_ignore, &i, &string, json);
+                    const next_char = json.next() orelse return ParseError.StringInvalidEscape;
+                    try escape(next_char, null, null, &string, json);
                 },
-                '"' => {
-                    json.ignoreMany(to_ignore + 1); // For the last quote
-                    to_ignore = 0;
-                    return prepareString(&string);
-                },
-                else => {
-                    try string.append(char);
-                    to_ignore += 1;
-                },
+                '"' => return prepareString(&string),
+                else => try string.append(char),
             }
-        }
-        // std.debug.print("Ignoring {} bytes because out of loop\n", .{to_ignore});
-        json.ignoreMany(to_ignore);
-    }
-    // If this code is running here, it means the string hasn’t ended yet and there are less than 8 bytes left
-    while (json.next()) |char| {
-        switch (char) {
-            '\\' => {
-                const next_char = json.next() orelse return ParseError.StringInvalidEscape;
-                try escape(next_char, null, null, &string, json);
-            },
-            '"' => return prepareString(&string),
-            else => try string.append(char),
         }
     }
     return ParseError.ExpectedEndOfString;
