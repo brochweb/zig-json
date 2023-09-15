@@ -13,16 +13,16 @@ Each command was run several times, with the best time taken. The zsh `time` uti
 
 |           file           | json implementation | max memory (KB) | time (secs) |
 | :----------------------: | :-----------------: | :-------------: | :---------: |
-| tests/ascii_strings.json |      zig-json       |     127888      |    0.049    |
-| tests/ascii_strings.json |      std.json       |     125808      |    0.367    |
-|    tests/numbers.json    |      zig-json       |      94336      |    0.105    |
-|    tests/numbers.json    |      std.json       |     276336      |    0.218    |
-|    tests/random.json     |      zig-json       |     212448      |    0.283    |
-|    tests/random.json     |      std.json       |     428114      |    0.602    |
-|     tests/food.json      |      zig-json       |      1488       |    0.003    |
-|     tests/food.json      |      std.json       |      1600       |    0.003    |
-|    tests/geojson.json    |      zig-json       |      58992      |    0.051    |
-|    tests/geojson.json    |      std.json       |      84528      |    0.092    |
+| tests/ascii_strings.json |      zig-json       |     100096      |    0.033    |
+| tests/ascii_strings.json |      std.json       |      87232      |    0.152    |
+|    tests/numbers.json    |      zig-json       |      94064      |    0.058    |
+|    tests/numbers.json    |      std.json       |     220432      |    0.091    |
+|    tests/random.json     |      zig-json       |     206512      |    0.154    |
+|    tests/random.json     |      std.json       |     380240      |    0.300    |
+|     tests/food.json      |      zig-json       |      1424       |    0.003    |
+|     tests/food.json      |      std.json       |      1536       |    0.003    |
+|    tests/geojson.json    |      zig-json       |      51104      |    0.031    |
+|    tests/geojson.json    |      std.json       |      78944      |    0.038    |
 
 
 A [Broch Web Solutions](https://www.brochweb.com/) project

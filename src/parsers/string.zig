@@ -11,7 +11,7 @@ pub fn readString(json: *SliceIterator(u8), allocator: Allocator) ParseError![]u
         return ParseError.ExpectedString;
     }
     while (json.len > 0) {
-        const slice = json.takeWhileNeSimd(2, [2]@Vector(16, u8){ @splat(16, @as(u8, '"')), @splat(16, @as(u8, '\\')) });
+        const slice = json.takeWhileNeSimd(2, [2]@Vector(16, u8){ @splat(@as(u8, '"')), @splat(@as(u8, '\\')) });
         try string.appendSlice(slice);
 
         var i: u8 = 0;
@@ -22,7 +22,7 @@ pub fn readString(json: *SliceIterator(u8), allocator: Allocator) ParseError![]u
                     const next_char = json.next() orelse return ParseError.StringInvalidEscape;
                     try escape(next_char, null, null, &string, json);
                 },
-                '"' => return prepareString(&string),
+                '"' => return try prepareString(&string),
                 else => try string.append(char),
             }
         }
@@ -62,7 +62,7 @@ inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayLis
                 escape_groups = eight_bytes[0..2];
             }
             var utf16: [2]u16 = undefined;
-            for (escape_groups) |bytes, idx| {
+            for (escape_groups, 0..) |bytes, idx| {
                 utf16[idx] = std.fmt.parseUnsigned(u16, &bytes, 16) catch return ParseError.StringInvalidEscape;
             }
             // std.debug.print("Eight bytes: {} {}\nUTF-16: {x}\n", .{ std.fmt.fmtSliceHexUpper(&eight_bytes[0]), std.fmt.fmtSliceHexUpper(&eight_bytes[1]), utf16 });
@@ -70,7 +70,7 @@ inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayLis
             const utf8_len = std.unicode.utf16leToUtf8(&utf8, utf16[0..escape_groups.len]) catch {
                 for (utf16) |val| {
                     if (val <= 0x1F) {
-                        try string.append(@truncate(u8, val));
+                        try string.append(@as(u8, @truncate(val)));
                     } else {
                         return ParseError.InvalidString;
                     }
@@ -85,9 +85,9 @@ inline fn escape(char: u8, to_ignore: ?*usize, i: ?*usize, string: *std.ArrayLis
     }
 }
 
-inline fn prepareString(string: *std.ArrayList(u8)) []u8 {
+inline fn prepareString(string: *std.ArrayList(u8)) ![]u8 {
     string.shrinkAndFree(string.items.len);
-    const slice = string.toOwnedSlice();
+    const slice = try string.toOwnedSlice();
     string.deinit();
     return slice;
 }

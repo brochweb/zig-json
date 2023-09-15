@@ -9,21 +9,33 @@ pub fn build(b: *std.build.Builder) void {
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    const mode = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable("zig-json", "src/main.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.addPackagePath("clap", "libs/zig-clap/clap.zig");
+    const clap = b.addModule("clap", .{
+        .source_file = .{
+            .cwd_relative = "libs/zig-clap/clap.zig"
+        }
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "zig-json",
+        .root_source_file = .{
+            .cwd_relative = "src/main.zig"
+        },
+        .optimize = mode,
+        .target = target,
+    });
+    exe.addModule("clap", clap);
     exe.strip = mode == .ReleaseFast;
     exe.dead_strip_dylibs = mode == .ReleaseFast;
-    exe.install();
+
+    b.installArtifact(exe);
 
     var sign_step = b.step("sign", "Sign the app");
     sign_step.makeFn = codesign;
     sign_step.dependOn(b.getInstallStep());
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -32,15 +44,19 @@ pub fn build(b: *std.build.Builder) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const exe_tests = b.addTest("src/main.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
+    const exe_tests = b.addTest(.{
+        .root_source_file = .{
+            .cwd_relative = "src/main.zig"
+        },
+        .target = target,
+        .optimize = mode,
+    });
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
 }
 
-fn codesign(_: *std.build.Step) !void {
+fn codesign(_: *std.build.Step, _: *std.Progress.Node) !void {
     var proc = std.ChildProcess.init(&[_][]const u8{ "xcrun", "codesign", "-s", std.os.getenv("XCODE_ID") orelse return error.NoXcodeId, "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
     try proc.spawn();
     _ = try proc.wait();

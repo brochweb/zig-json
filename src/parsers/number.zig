@@ -60,7 +60,7 @@ fn parseUnsignedNumberFast(json: *SliceIterator(u8)) ParseError!f64 {
             '0'...'9' => {
                 json.ignoreNext();
                 const val = char - '0';
-                num += @intToFloat(f64, val) * powers_of_ten_f64[i & 31];
+                num += @as(f64, @floatFromInt(val)) * powers_of_ten_f64[i & 31];
             },
             '.' => {
                 json.ignoreNext();
@@ -75,7 +75,7 @@ fn parseUnsignedNumberFast(json: *SliceIterator(u8)) ParseError!f64 {
     }
     num += frac;
     if (exp != 1) {
-        num = std.math.pow(f64, num, @intToFloat(f64, exp));
+        num = std.math.pow(f64, num, @as(f64, @floatFromInt(exp)));
     }
     return num;
 }
@@ -87,7 +87,7 @@ inline fn parseFrac(json: *SliceIterator(u8)) ParseError!f64 {
             '0'...'9' => {
                 json.ignoreNext();
                 const val = char - '0';
-                out += @intToFloat(f64, val) * powers_of_ten_neg_f64[i & 31];
+                out += @as(f64, @floatFromInt(val)) * powers_of_ten_neg_f64[i & 31];
             },
             else => break,
         }

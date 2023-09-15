@@ -129,7 +129,7 @@ pub const JsonValue = union(enum) {
                                             if (iterator.peekManyRef(len - 1)) |other_bytes| {
                                                 var utf8_buf: [4]u8 = undefined;
                                                 utf8_buf[0] = char;
-                                                for (other_bytes) |v, i| {
+                                                for (other_bytes, 0..) |v, i| {
                                                     utf8_buf[i + 1] = v;
                                                 }
                                                 if (std.unicode.utf8ValidateSlice(utf8_buf[0..len])) {
@@ -167,7 +167,7 @@ pub const JsonValue = union(enum) {
             .Number => |val| try std.fmt.format(writer, "{d}", .{val}),
             .Array => |arr| {
                 try std.fmt.format(writer, "[", .{});
-                for (arr.*) |itm, i| {
+                for (arr.*, 0..) |itm, i| {
                     // for (arr.items) |itm, i| {
                     try itm.format(fmt, opts, writer);
                     if (i < arr.len - 1) {
@@ -219,7 +219,7 @@ pub fn main() !void {
     };
     defer args.deinit();
 
-    if (args.args.help) {
+    if (args.args.help == 1) {
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
     }
 
@@ -231,19 +231,18 @@ pub fn main() !void {
             break :x try std.fs.cwd().readFileAlloc(allocator, file_name, std.math.maxInt(isize));
     };
     // const val = try parse(&json_body, allocator);
-    if (args.args.stdlib) {
+    if (args.args.stdlib == 1) {
         var val = x: {
-            var parser = std.json.Parser.init(allocator, true);
-            break :x try parser.parse(json_body);
+            break :x try std.json.parseFromSlice(std.json.Value,allocator,json_body,.{});
         };
         defer val.deinit();
-        if (args.args.print) {
-            try std.io.getStdOut().writer().print("{}\n", .{val.root});
+        if (args.args.print == 1) {
+            try std.io.getStdOut().writer().print("{}\n", .{val});
         }
     } else {
         const val = try parse(json_body, allocator);
         defer val.deinit();
-        if (args.args.print) {
+        if (args.args.print == 1) {
             try std.io.getStdOut().writer().print("{}\n", .{val.value});
         }
     }
@@ -326,7 +325,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 if ((json.peekCopy() orelse return ParseError.ExpectedNextValue) == ']') {
                     json.ignoreNext();
                     var array = try allocator.create([]JsonValue);
-                    array.* = contents.toOwnedSlice();
+                    array.* = try contents.toOwnedSlice();
                     return .{ .Array = array };
                     // return .{ .Array = contents };
                 }
@@ -344,7 +343,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 }
                 contents.shrinkRetainingCapacity(contents.items.len);
                 var array = try allocator.create([]JsonValue);
-                array.* = contents.toOwnedSlice();
+                array.* = try contents.toOwnedSlice();
                 return .{ .Array = array };
                 // return .{ .Array = contents };
             },
@@ -434,7 +433,7 @@ fn copy_slice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
 
 test "json string" {
     var string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\\u0003\\f\"";
-    var mut_slice = SliceIterator(u8).from_slice(mem.span(string));
+    var mut_slice = SliceIterator(u8).from_slice(string);
     const string_ret = try readString(&mut_slice, std.testing.allocator);
     defer std.testing.allocator.free(string_ret);
     try std.testing.expectEqualStrings("test, test,\n🎸🦕㻘\x03\x0C", string_ret);
@@ -446,20 +445,20 @@ test "sizes" {
 
 test "json array" {
     const string = ("[5   ,\n\n" ** 400) ++ "[\"algo\", 3.1415926535, 5.2e+50, \"\",null,true,false,[],[],[],[[[[[[[[[[[[[[]]]]]]]]]]]]]]]" ++ ("]" ** 400);
-    const ret = try parse(mem.span(string), std.testing.allocator);
+    const ret = try parse(string, std.testing.allocator);
     std.debug.print("{}\n", .{ret});
     defer ret.deinit();
 }
 
 test "json atoms" {
     const string = "[null,true,false,null,true,       false]";
-    const ret = try parse(mem.span(string), std.testing.allocator);
+    const ret = try parse(string, std.testing.allocator);
     defer ret.deinit();
 }
 
 test "json object" {
     const string = "{\n\t\t\"name\":\"Steve\"\n\t}";
-    const ret = try parse(mem.span(string), std.testing.allocator);
+    const ret = try parse(string, std.testing.allocator);
     defer ret.deinit();
     switch (ret.value) {
         .Object => |object| {
@@ -475,7 +474,7 @@ test "json object" {
 test "invalid json array" {
     // Testing for memory leaks during parsing mostly
     const string = "[1,2,\"string\",\"spring\",[1,  0.5, 3.2e+7, face], bull]";
-    if (parse(mem.span(string), std.testing.allocator)) |ret| {
+    if (parse(string, std.testing.allocator)) |ret| {
         ret.deinit();
         return error.ShouldNotCompleteParsing;
     } else |err| {
