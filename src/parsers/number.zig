@@ -96,7 +96,7 @@ inline fn parseFrac(json: *SliceIterator(u8)) ParseError!f64 {
 }
 inline fn parseExp(json: *SliceIterator(u8)) ParseError!i16 {
     var exp: i16 = 0;
-    var next = json.peekCopy() orelse 0;
+    const next = json.peekCopy() orelse 0;
     if (next == '-' or next == '+') {
         json.ignoreNext();
     }

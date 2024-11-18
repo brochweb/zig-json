@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -12,21 +12,16 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardOptimizeOption(.{});
 
     const clap = b.addModule("clap", .{
-        .source_file = .{
-            .cwd_relative = "libs/zig-clap/clap.zig"
-        }
+        .root_source_file = b.path("libs/zig-clap/clap.zig")
     });
 
     const exe = b.addExecutable(.{
         .name = "zig-json",
-        .root_source_file = .{
-            .cwd_relative = "src/main.zig"
-        },
+        .root_source_file = b.path("src/main.zig"),
         .optimize = mode,
         .target = target,
     });
-    exe.addModule("clap", clap);
-    exe.strip = mode == .ReleaseFast;
+    exe.root_module.addImport("clap", clap);
     exe.dead_strip_dylibs = mode == .ReleaseFast;
 
     b.installArtifact(exe);
@@ -45,9 +40,7 @@ pub fn build(b: *std.build.Builder) void {
     run_step.dependOn(&run_cmd.step);
 
     const exe_tests = b.addTest(.{
-        .root_source_file = .{
-            .cwd_relative = "src/main.zig"
-        },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = mode,
     });
@@ -56,8 +49,8 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(&exe_tests.step);
 }
 
-fn codesign(_: *std.build.Step, _: *std.Progress.Node) !void {
-    var proc = std.ChildProcess.init(&[_][]const u8{ "xcrun", "codesign", "-s", std.os.getenv("XCODE_ID") orelse return error.NoXcodeId, "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
+fn codesign(_: *std.Build.Step, _: std.Progress.Node) !void {
+    var proc = std.process.Child.init(&[_][]const u8{ "xcrun", "codesign", "-s", std.posix.getenv("XCODE_ID") orelse return error.NoXcodeId, "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
     try proc.spawn();
     _ = try proc.wait();
 }

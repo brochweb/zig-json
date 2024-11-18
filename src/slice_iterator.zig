@@ -74,7 +74,7 @@ pub fn SliceIterator(comptime T: type) type {
         pub fn peekMany(self: *const Self, comptime n: usize) ?[n]T {
             if (self.len >= n) {
                 var out: [n]T = undefined;
-                mem.copy(u8, out[0..], self.ptr[0..n]);
+                mem.copyForwards(u8, out[0..], self.ptr[0..n]);
                 return out;
             } else {
                 return null;

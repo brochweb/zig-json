@@ -69,12 +69,12 @@ pub const JsonValue = union(enum) {
     fn deepClone(self: *const @This(), new_alloc: Allocator) !JsonValue {
         switch (self.*) {
             .String => |*string| {
-                var buf = try new_alloc.alloc(u8, string.len);
+                const buf = try new_alloc.alloc(u8, string.len);
                 mem.copy(u8, buf, string.*);
                 return .{ .String = buf };
             },
             .Array => |array| {
-                var buf = try new_alloc.alloc(JsonValue, array.len);
+                const buf = try new_alloc.alloc(JsonValue, array.len);
                 mem.copy(JsonValue, buf, array);
                 for (buf) |*value| {
                     value.* = try value.deepClone(new_alloc);
@@ -86,7 +86,7 @@ pub const JsonValue = union(enum) {
                 var iterator = new_obj.iterator();
                 while (iterator.next()) |*kv| {
                     kv.value_ptr.* = try kv.value_ptr.*.deepClone(new_alloc);
-                    var key_buf = try new_alloc.alloc(u8, kv.key_ptr.len);
+                    const key_buf = try new_alloc.alloc(u8, kv.key_ptr.len);
                     mem.copy(u8, key_buf, kv.key_ptr.*);
                     kv.key_ptr.* = key_buf;
                 }
@@ -145,7 +145,7 @@ pub const JsonValue = union(enum) {
                                                 utf8_buf[i] = iterator.next() orelse break :inner;
                                             }
                                             var utf16_buf: [4]u16 = undefined;
-                                            var utf16_len = std.unicode.utf8ToUtf16Le(&utf16_buf, &utf8_buf) catch break :inner;
+                                            const utf16_len = std.unicode.utf8ToUtf16Le(&utf16_buf, &utf8_buf) catch break :inner;
                                             var j: usize = 0;
                                             while (j < utf16_len) : (j += 1) {
                                                 try std.fmt.format(writer, "\\u{x:0>4}", .{utf16_buf[j]});
@@ -212,7 +212,7 @@ pub fn main() !void {
         \\
     );
     var diag = clap.Diagnostic{};
-    var args = clap.parse(clap.Help, &params, .{ .FILE = clap.parsers.string }, .{ .diagnostic = &diag }) catch |err| {
+    var args = clap.parse(clap.Help, &params, .{ .FILE = clap.parsers.string }, .{ .diagnostic = &diag, .allocator = allocator }) catch |err| {
         // Report error and exit
         diag.report(io.getStdErr().writer(), err) catch {};
         return err;
@@ -226,10 +226,11 @@ pub fn main() !void {
     const file_name = if (args.positionals.len >= 1) args.positionals[0] else "-";
     const json_body = x: {
         if (mem.eql(u8, file_name, "-"))
-            break :x try io.getStdIn().readToEndAlloc(allocator, std.math.maxInt(isize))
+            break :x try io.getStdIn().readToEndAlloc(allocator, 0x20000000)
         else
-            break :x try std.fs.cwd().readFileAlloc(allocator, file_name, std.math.maxInt(isize));
+            break :x try std.fs.cwd().readFileAlloc(allocator, file_name, 0x20000000);
     };
+    defer allocator.free(json_body);
     // const val = try parse(&json_body, allocator);
     if (args.args.stdlib == 1) {
         var val = x: {
@@ -257,7 +258,7 @@ pub fn parse(json_buf: []const u8, allocator: Allocator) ParseError!RootJsonValu
 
     const arena_alloc = arena.allocator();
     var json = SliceIterator(u8).from_slice(json_buf);
-    var state: ParseState = .Value;
+    const state: ParseState = .Value;
 
     ignoreWs(&json);
     const value: JsonValue = parseNext(&json, state, arena_alloc) catch |err| {
@@ -278,7 +279,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
         switch (state) {
             .Value => {
                 if (isString(char)) {
-                    var string = try allocator.create([]u8);
+                    const string = try allocator.create([]u8);
                     errdefer allocator.destroy(string);
                     string.* = try readString(json, allocator);
                     return .{ .String = string };
@@ -324,7 +325,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                 }
                 if ((json.peekCopy() orelse return ParseError.ExpectedNextValue) == ']') {
                     json.ignoreNext();
-                    var array = try allocator.create([]JsonValue);
+                    const array = try allocator.create([]JsonValue);
                     array.* = try contents.toOwnedSlice();
                     return .{ .Array = array };
                     // return .{ .Array = contents };
@@ -342,7 +343,7 @@ fn parseNext(json: *SliceIterator(u8), state: ParseState, allocator: Allocator) 
                     }
                 }
                 contents.shrinkRetainingCapacity(contents.items.len);
-                var array = try allocator.create([]JsonValue);
+                const array = try allocator.create([]JsonValue);
                 array.* = try contents.toOwnedSlice();
                 return .{ .Array = array };
                 // return .{ .Array = contents };
@@ -432,7 +433,7 @@ fn copy_slice(allocator: std.mem.Allocator, slice: []const u8) ![]u8 {
 }
 
 test "json string" {
-    var string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\\u0003\\f\"";
+    const string = "\"test, test,\\n🎸\\uD83E\\uDD95\\u3ED8\\u0003\\f\"";
     var mut_slice = SliceIterator(u8).from_slice(string);
     const string_ret = try readString(&mut_slice, std.testing.allocator);
     defer std.testing.allocator.free(string_ret);
