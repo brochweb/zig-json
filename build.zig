@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     // Standard target options allows the person running `zig build` to choose
@@ -49,8 +50,12 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&exe_tests.step);
 }
 
-fn codesign(_: *std.Build.Step, _: std.Progress.Node) !void {
-    var proc = std.process.Child.init(&[_][]const u8{ "xcrun", "codesign", "-s", std.posix.getenv("XCODE_ID") orelse return error.NoXcodeId, "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
-    try proc.spawn();
-    _ = try proc.wait();
+fn codesign(_: *std.Build.Step, _: std.Progress.Node) anyerror!void {
+    if (builtin.target.os != .windows) {
+        var proc = std.process.Child.init(&[_][]const u8{ "xcrun", "codesign", "-s", std.posix.getenv("XCODE_ID") orelse return error.NoXcodeId, "--entitlements", "entitlements.plist", "zig-out/bin/zig-json" }, std.heap.page_allocator);
+        try proc.spawn();
+        _ = try proc.wait();
+    } else {
+        return void;
+    }
 }
